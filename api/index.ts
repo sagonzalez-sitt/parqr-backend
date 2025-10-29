@@ -3,30 +3,47 @@ import { ValidationPipe } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module';
 import express from 'express';
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 let app: any;
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
+  // Handle CORS manually for preflight requests
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'https://parqr-frontend.vercel.app',
+    process.env.FRONTEND_URL
+  ].filter(Boolean);
+
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept');
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
   if (!app) {
     try {
       const server = express();
-      
+
       app = await NestFactory.create(
         AppModule,
         new ExpressAdapter(server),
-        { 
+        {
           logger: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['log', 'error', 'warn', 'debug', 'verbose']
         }
       );
 
       // Enable CORS
       app.enableCors({
-        origin: [
-          'http://localhost:3000',
-          'https://parqr-frontend.vercel.app',
-          process.env.FRONTEND_URL
-        ].filter(Boolean),
+        origin: allowedOrigins,
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
@@ -43,7 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       app.setGlobalPrefix('api');
 
       await app.init();
-      
+
       console.log('✅ NestJS app initialized for Vercel');
     } catch (error) {
       console.error('❌ Error initializing NestJS app:', error);
