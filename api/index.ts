@@ -39,8 +39,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         transform: true,
       }));
 
-      // Global prefix - Remove this for Vercel
-      // app.setGlobalPrefix('api');
+      // Global prefix
+      app.setGlobalPrefix('api');
 
       await app.init();
       
