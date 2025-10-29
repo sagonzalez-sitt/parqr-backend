@@ -1,75 +1,134 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { ExpressAdapter } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module';
+import { PrismaService } from '../src/database/prisma.service';
+import express from 'express';
+import cors from 'cors';
+import { VercelRequest, VercelResponse } from '@vercel/node';
 
-let cachedApp: any = null;
+// Crear la aplicación Express
+const app = express();
 
-export default async function handler(req: any, res: any) {
-  try {
-    // Set CORS headers first
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'https://parqr-frontend.vercel.app'
-    ];
+// Middlewares básicos
+app.use(cors({
+  credentials: true,
+  origin: [
+    'http://localhost:3000',
+    'https://parqr-frontend.vercel.app',
+    process.env.FRONTEND_URL
+  ].filter(Boolean)
+}));
 
-    const origin = req.headers.origin;
-    if (allowedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-    }
-    
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept');
+app.use(express.json());
 
-    // Handle preflight requests
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
+// Ruta de health check
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    service: 'Parking Management API'
+  });
+});
 
-    // Initialize app if not cached
-    if (!cachedApp) {
-      console.log('🚀 Initializing NestJS app...');
+// Variables para controlar la inicialización
+let nestApp: any = null;
+let dbConnected = false;
+
+// Función para conectar a la base de datos
+const connectDB = async () => {
+  if (!dbConnected) {
+    try {
+      // Verificar que la URL de la base de datos esté presente
+      if (!process.env.DATABASE_URL) {
+        throw new Error('DATABASE_URL environment variable is required');
+      }
       
-      cachedApp = await NestFactory.create(AppModule, {
-        logger: ['error', 'warn', 'log']
-      });
+      console.log('✅ Database configuration verified');
+      dbConnected = true;
+    } catch (error) {
+      console.error('❌ Database connection failed:', error);
+      throw error;
+    }
+  }
+};
 
-      // Configure CORS
-      cachedApp.enableCors({
-        origin: allowedOrigins,
+// Función para inicializar NestJS
+const initializeNestApp = async () => {
+  if (!nestApp) {
+    try {
+      console.log('🚀 Initializing NestJS application...');
+      
+      // Crear la aplicación NestJS con Express adapter
+      nestApp = await NestFactory.create(
+        AppModule,
+        new ExpressAdapter(app),
+        {
+          logger: process.env.NODE_ENV === 'production' 
+            ? ['error', 'warn'] 
+            : ['log', 'error', 'warn', 'debug', 'verbose']
+        }
+      );
+
+      // Configurar CORS en NestJS
+      nestApp.enableCors({
+        origin: [
+          'http://localhost:3000',
+          'https://parqr-frontend.vercel.app',
+          process.env.FRONTEND_URL
+        ].filter(Boolean),
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
       });
 
-      // Global validation
-      cachedApp.useGlobalPipes(new ValidationPipe({
+      // Global validation pipe
+      nestApp.useGlobalPipes(new ValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
       }));
 
       // Set global prefix
-      cachedApp.setGlobalPrefix('api');
+      nestApp.setGlobalPrefix('api');
 
-      await cachedApp.init();
-      console.log('✅ NestJS app initialized successfully');
+      // Inicializar la aplicación
+      await nestApp.init();
+      
+      console.log('✅ NestJS application initialized successfully');
+    } catch (error) {
+      console.error('❌ Failed to initialize NestJS application:', error);
+      nestApp = null;
+      throw error;
     }
+  }
+};
 
-    // Handle the request
-    const expressApp = cachedApp.getHttpAdapter().getInstance();
-    return expressApp(req, res);
-
+// Handler principal para Vercel
+export default async (req: VercelRequest, res: VercelResponse) => {
+  try {
+    // Conectar a la base de datos
+    await connectDB();
+    
+    // Inicializar NestJS si no está inicializado
+    await initializeNestApp();
+    
+    // Pasar la request y response a Express
+    return app(req as any, res as any);
+    
   } catch (error) {
-    console.error('❌ Handler error:', error);
+    console.error('❌ Error in serverless function:', error);
     
-    // Reset cached app on error
-    cachedApp = null;
+    // Reset en caso de error
+    nestApp = null;
+    dbConnected = false;
     
-    return res.status(500).json({ 
-      error: 'Internal Server Error',
-      message: error.message,
-      timestamp: new Date().toISOString()
+    return res.status(500).json({
+      code: 'ServerError',
+      message: 'Internal server error',
+      timestamp: new Date().toISOString(),
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-}
+};
