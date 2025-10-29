@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ParkingTicket {
+  id             String               @id @default(uuid())
+  qrToken        String               @unique @map("qr_token")
+  plateNumber    String               @map("plate_number")
+  vehicleType    VehicleType          @map("vehicle_type")
+  entryTimestamp DateTime             @map("entry_timestamp")
+  exitTimestamp  DateTime?            @map("exit_timestamp")
+  calculatedFee  Decimal?             @map("calculated_fee") @db.Decimal(10, 2)
+  status         TicketStatus         @default(ACTIVE)
+  deliveryMethod TicketDeliveryMethod @default(UNKNOWN) @map("delivery_method")
+  qrDownloadedAt DateTime?            @map("qr_downloaded_at")
+  printedAt      DateTime?            @map("printed_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  @@index([qrToken])
+  @@index([plateNumber])
+  @@index([status])
+  @@index([entryTimestamp])
+  @@index([deliveryMethod])
+  @@map("parking_tickets")
+}
+
+enum VehicleType {
+  CAR
+  MOTORCYCLE
+  BICYCLE
+}
+
+enum TicketStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum TicketDeliveryMethod {
+  DIGITAL_PHOTO
+  DIGITAL_DOWNLOAD
+  PRINTED
+  UNKNOWN
+}

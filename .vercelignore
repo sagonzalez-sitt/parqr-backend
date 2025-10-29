@@ -1,0 +1,17 @@
+node_modules
+.git
+.env
+.env.local
+.env.development
+.env.test
+coverage
+test
+*.test.ts
+*.spec.ts
+jest.config.js
+.eslintrc.js
+.prettierrc
+README.md
+Dockerfile
+docker-compose.yml
+.dockerignore
