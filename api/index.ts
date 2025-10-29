@@ -2,19 +2,17 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module';
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// Extend global to include our app instance
-declare global {
-  var __app: express.Application | undefined;
-}
+let app: any;
 
-const server = express();
-
-export default async (req: Request, res: Response) => {
-  if (!global.__app) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (!app) {
     try {
-      const app = await NestFactory.create(
+      const server = express();
+      
+      app = await NestFactory.create(
         AppModule,
         new ExpressAdapter(server),
         { 
@@ -41,18 +39,23 @@ export default async (req: Request, res: Response) => {
         transform: true,
       }));
 
-      // Global prefix
-      app.setGlobalPrefix('api');
+      // Global prefix - Remove this for Vercel
+      // app.setGlobalPrefix('api');
 
       await app.init();
-      global.__app = app.getHttpAdapter().getInstance();
       
       console.log('✅ NestJS app initialized for Vercel');
     } catch (error) {
       console.error('❌ Error initializing NestJS app:', error);
-      throw error;
+      res.status(500).json({ error: 'Failed to initialize application', details: error.message });
+      return;
     }
   }
 
-  return global.__app(req, res);
-};
+  try {
+    return app.getHttpAdapter().getInstance()(req, res);
+  } catch (error) {
+    console.error('❌ Error handling request:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+}
